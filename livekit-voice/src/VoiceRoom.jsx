@@ -337,7 +337,7 @@ export default function VoiceRoom() {
     const ws = new WebSocket(WS_SERVER);
     deepgramWsRef.current = ws;
     ws.onopen = () => {
-      const ac = new AudioContext();
+      const ac = new AudioContext({ sampleRate: 48000 });
       const src = ac.createMediaStreamSource(stream);
       const proc = ac.createScriptProcessor(2048, 1, 1);
       src.connect(proc); proc.connect(ac.destination);
