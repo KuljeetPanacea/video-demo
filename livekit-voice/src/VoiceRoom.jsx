@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Room, RoomEvent, Track } from "livekit-client";
+import { Room, RoomEvent, Track, ParticipantEvent } from "livekit-client";
 import {
   Mic, MicOff, Video, VideoOff, PhoneOff, ScreenShare,
   MessageSquare, Users, MoreHorizontal, Sun, Moon,
@@ -33,6 +33,7 @@ function useCallTimer(running) {
   return h ? `${h}:${m}:${s}` : `${m}:${s}`;
 }
 
+// ─── Participant tile ───
 function ParticipantTile({
   id, label, isSelf, micOff, videoOff, dark,
   videoRefCallback, localVideoRef,
@@ -52,6 +53,7 @@ function ParticipantTile({
     <div style={{
       position: "relative", borderRadius: 16, overflow: "hidden",
       background: dark ? "#1e1e20" : "#e8e8ea",
+      // FIX 2: Glow border when participant is speaking
       border: isSpeaking
         ? "2px solid #22c55e"
         : dark ? "1.5px solid rgba(255,255,255,0.09)" : "1.5px solid rgba(0,0,0,0.08)",
@@ -64,7 +66,9 @@ function ParticipantTile({
       <video
         id={`tile-video-${id}${isScreenShare ? "-screen" : ""}`}
         ref={refProp}
-        autoPlay playsInline muted={isSelf}
+        autoPlay
+        playsInline
+        muted={isSelf}
         style={{
           position: "absolute", inset: 0, width: "100%", height: "100%",
           objectFit: "cover", display: videoOff ? "none" : "block",
@@ -82,22 +86,29 @@ function ParticipantTile({
         }}>{initials(id)}</div>
       )}
 
+      {/* FIX 3: Fullscreen button for screen share tiles */}
       {isScreenShare && !videoOff && (
-        <button onClick={handleFullscreen} title="Fullscreen" style={{
-          position: "absolute", top: 8, right: 8, zIndex: 10,
-          width: 30, height: 30, borderRadius: 6, border: "none",
-          background: "rgba(0,0,0,0.55)", cursor: "pointer",
-          display: "flex", alignItems: "center", justifyContent: "center",
-        }}>
+        <button
+          onClick={handleFullscreen}
+          title="Fullscreen"
+          style={{
+            position: "absolute", top: 8, right: 8, zIndex: 10,
+            width: 30, height: 30, borderRadius: 6, border: "none",
+            background: "rgba(0,0,0,0.55)", cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
           <Maximize2 size={14} color="#fff" />
         </button>
       )}
 
+      {/* Speaking indicator pulse */}
       {isSpeaking && (
         <div style={{
           position: "absolute", top: 8, left: 8, zIndex: 10,
           width: 10, height: 10, borderRadius: "50%",
-          background: "#22c55e", boxShadow: "0 0 0 3px rgba(34,197,94,0.4)",
+          background: "#22c55e",
+          boxShadow: "0 0 0 3px rgba(34,197,94,0.4)",
           animation: "speakPulse 0.8s ease-in-out infinite",
         }} />
       )}
@@ -115,6 +126,7 @@ function ParticipantTile({
         }}>
           {label}{isSelf ? " (You)" : ""}{isScreenShare ? " · Screen" : ""}
         </span>
+        {/* FIX 1: Show actual mute state from LiveKit events */}
         <div style={{
           width: 22, height: 22, borderRadius: "50%",
           background: micOff ? "#dc2626" : "#16a34a",
@@ -185,6 +197,7 @@ export default function VoiceRoom() {
   const videoElems = useRef({});
   const pendingTracks = useRef({});
   const callbackRefCache = useRef({});
+  // separate cache for screen share video elements
   const screenVideoElems = useRef({});
   const screenCallbackRefCache = useRef({});
 
@@ -197,11 +210,15 @@ export default function VoiceRoom() {
   const [showParticipants, setShowParticipants] = useState(false);
   const [statusText, setStatusText] = useState("idle");
   const [transcript, setTranscript] = useState([]);
+  // FIX 1: remoteUsers now also tracks micMuted and videoMuted
   const [remoteUsers, setRemoteUsers] = useState([]);
+  // FIX 2: track speaking identities
   const [speakingIds, setSpeakingIds] = useState(new Set());
+  // FIX 3: screen share tiles
   const [screenShareTiles, setScreenShareTiles] = useState([]);
 
   const timer = useCallTimer(started);
+
   const bg = dark ? "#111113" : "#f9fafb";
   const surface = dark ? "#1c1c1e" : "#ffffff";
   const surface2 = dark ? "#2c2c2e" : "#f3f4f6";
@@ -231,6 +248,7 @@ export default function VoiceRoom() {
     return callbackRefCache.current[identity];
   }, []);
 
+  // FIX 3: separate callback ref for screen share video elements
   const getScreenCallbackRef = useCallback((identity) => {
     if (!screenCallbackRefCache.current[identity]) {
       screenCallbackRefCache.current[identity] = (el) => {
@@ -273,21 +291,6 @@ export default function VoiceRoom() {
     });
     videoStreamRef.current = stream;
     return stream;
-  };
-
-  // ─── FIX 1: Correct mute state reader ───
-  // pub.isMuted=true means the track IS muted (mic/cam is OFF).
-  // Default to false so new participants don't appear muted before their tracks arrive.
-  const getParticipantMuteState = (participant) => {
-    let micOff = false;
-    let videoOff = false;
-    participant.audioTrackPublications.forEach((pub) => {
-      if (pub.source === Track.Source.Microphone) micOff = pub.isMuted;
-    });
-    participant.videoTrackPublications.forEach((pub) => {
-      if (pub.source === Track.Source.Camera) videoOff = pub.isMuted;
-    });
-    return { micOff, videoOff };
   };
 
   const toggleScreenShare = async () => {
@@ -343,7 +346,7 @@ export default function VoiceRoom() {
       src.connect(proc); proc.connect(ac.destination);
       proc.onaudioprocess = (e) => {
         const inp = e.inputBuffer.getChannelData(0);
-        // const ds = downsampleBuffer(inp, ac.sampleRate, 16000);
+        const ds = downsampleBuffer(inp, ac.sampleRate, 16000);
         const pcm = new Int16Array(ds.length);
         for (let i = 0; i < ds.length; i++) pcm[i] = Math.max(-1, Math.min(1, ds[i])) * 0x7fff;
         if (ws.readyState === WebSocket.OPEN) ws.send(pcm.buffer);
@@ -369,6 +372,19 @@ export default function VoiceRoom() {
   }, [addLine]);
 
   useEffect(() => { startTranscriptionRef.current = startTranscription; }, [startTranscription]);
+
+  // ── Helper: read current mute state from a remote participant ──
+  const getParticipantMuteState = (participant) => {
+    let micMuted = true;
+    let videoMuted = true;
+    participant.audioTrackPublications.forEach((pub) => {
+      if (pub.source === Track.Source.Microphone) micMuted = pub.isMuted;
+    });
+    participant.videoTrackPublications.forEach((pub) => {
+      if (pub.source === Track.Source.Camera) videoMuted = pub.isMuted;
+    });
+    return { micMuted, videoMuted };
+  };
 
   const startCall = async () => {
     setStarted(true);
@@ -397,8 +413,10 @@ export default function VoiceRoom() {
       });
       roomRef.current = room;
 
+      // ── FIX 2: Active speaker events ──
       room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
-        setSpeakingIds(new Set(speakers.map((s) => s.identity)));
+        const ids = new Set(speakers.map((s) => s.identity));
+        setSpeakingIds(ids);
       });
 
       room.on(RoomEvent.DataReceived, (payload, participant) => {
@@ -409,26 +427,29 @@ export default function VoiceRoom() {
         } catch (e) { console.error("Data message error:", e); }
       });
 
-      // ─── FIX 1: TrackMuted/TrackUnmuted with correct field names ───
-      // Store micOff and videoOff directly — no renaming confusion.
+      // ── FIX 1: TrackMuted / TrackUnmuted events for remote participants ──
       room.on(RoomEvent.TrackMuted, (pub, participant) => {
         if (participant.identity === MY_IDENTITY) return;
-        setRemoteUsers((prev) => prev.map((u) => {
-          if (u.id !== participant.identity) return u;
-          if (pub.source === Track.Source.Microphone) return { ...u, micOff: true };
-          if (pub.source === Track.Source.Camera)     return { ...u, videoOff: true };
-          return u;
-        }));
+        setRemoteUsers((prev) =>
+          prev.map((u) => {
+            if (u.id !== participant.identity) return u;
+            if (pub.source === Track.Source.Microphone) return { ...u, micMuted: true };
+            if (pub.source === Track.Source.Camera) return { ...u, videoMuted: true };
+            return u;
+          })
+        );
       });
 
       room.on(RoomEvent.TrackUnmuted, (pub, participant) => {
         if (participant.identity === MY_IDENTITY) return;
-        setRemoteUsers((prev) => prev.map((u) => {
-          if (u.id !== participant.identity) return u;
-          if (pub.source === Track.Source.Microphone) return { ...u, micOff: false };
-          if (pub.source === Track.Source.Camera)     return { ...u, videoOff: false };
-          return u;
-        }));
+        setRemoteUsers((prev) =>
+          prev.map((u) => {
+            if (u.id !== participant.identity) return u;
+            if (pub.source === Track.Source.Microphone) return { ...u, micMuted: false };
+            if (pub.source === Track.Source.Camera) return { ...u, videoMuted: false };
+            return u;
+          })
+        );
       });
 
       room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
@@ -445,6 +466,7 @@ export default function VoiceRoom() {
         }
 
         if (track.kind === Track.Kind.Video) {
+          // FIX 3: Handle screen share tracks separately
           if (pub.source === Track.Source.ScreenShare) {
             setScreenShareTiles((prev) => {
               if (prev.find((t) => t.id === participant.identity)) return prev;
@@ -454,14 +476,11 @@ export default function VoiceRoom() {
             return;
           }
 
-          const { micOff, videoOff } = getParticipantMuteState(participant);
           setRemoteUsers((prev) => {
             const exists = prev.find((u) => u.id === participant.identity);
-            if (!exists) return [...prev, { id: participant.identity, hasVideo: !pub.isMuted, micOff, videoOff }];
-            return prev.map((u) => u.id === participant.identity
-              ? { ...u, hasVideo: !pub.isMuted, videoOff: pub.isMuted }
-              : u
-            );
+            const { micMuted, videoMuted } = getParticipantMuteState(participant);
+            if (!exists) return [...prev, { id: participant.identity, hasVideo: true, micMuted, videoMuted }];
+            return prev.map((u) => u.id === participant.identity ? { ...u, hasVideo: true } : u);
           });
           attachVideoTrack(participant.identity, track);
         }
@@ -474,6 +493,7 @@ export default function VoiceRoom() {
           if (el) el.remove();
         }
         if (track.kind === Track.Kind.Video) {
+          // FIX 3: screen share unsubscribed
           if (pub.source === Track.Source.ScreenShare) {
             track.detach();
             delete pendingTracks.current[`screen-${participant.identity}`];
@@ -482,24 +502,28 @@ export default function VoiceRoom() {
             setScreenShareTiles((prev) => prev.filter((t) => t.id !== participant.identity));
             return;
           }
+
           track.detach();
           delete pendingTracks.current[participant.identity];
           const el = videoElems.current[participant.identity];
           if (el) el.srcObject = null;
           setRemoteUsers((prev) =>
-            prev.map((u) => u.id === participant.identity ? { ...u, hasVideo: false, videoOff: true } : u)
+            prev.map((u) => u.id === participant.identity ? { ...u, hasVideo: false } : u)
           );
         }
       });
 
       room.on(RoomEvent.ParticipantConnected, (p) => {
         setStatusText("Connected");
-        const { micOff, videoOff } = getParticipantMuteState(p);
+        const { micMuted, videoMuted } = getParticipantMuteState(p);
         setRemoteUsers((prev) => [
           ...prev.filter((u) => u.id !== p.identity),
-          { id: p.identity, hasVideo: false, micOff, videoOff },
+          { id: p.identity, hasVideo: false, micMuted, videoMuted },
         ]);
         addLine("System", "User-" + p.identity.slice(-4) + " joined");
+
+        // FIX 1: subscribe to future mute/unmute events on this participant
+        // (handled globally via room-level TrackMuted / TrackUnmuted above)
       });
 
       room.on(RoomEvent.ParticipantDisconnected, (p) => {
@@ -518,55 +542,29 @@ export default function VoiceRoom() {
 
       await room.connect(data.server_url, data.participant_token);
 
-      // ─── FIX 2: Existing participants — state FIRST, tracks after render ───
-      //
-      // The old race condition:
-      //   pendingTracks[id] = track   ← stored here
-      //   setRemoteUsers([...])       ← tile renders AFTER this async setState
-      //   callback ref fires          ← but tile didn't exist yet when track was stored!
-      //   → pendingTracks consumed on mount works BUT only if setState has flushed.
-      //
-      // The safe pattern: call setRemoteUsers first, then use setTimeout(0) to queue
-      // track attachment AFTER React has rendered the tiles and the callback refs have
-      // registered the <video> elements in videoElems.current.
       const existingUsers = [];
-      const tracksToQueue = [];
-
       room.remoteParticipants.forEach((p) => {
-        const { micOff, videoOff } = getParticipantMuteState(p);
         let hasVideo = false;
-
+        const { micMuted, videoMuted } = getParticipantMuteState(p);
         p.videoTrackPublications.forEach((pub) => {
-          if (!pub.track || !pub.isSubscribed) return;
-          if (pub.source === Track.Source.ScreenShare) {
-            setScreenShareTiles((prev) => {
-              if (prev.find((t) => t.id === p.identity)) return prev;
-              return [...prev, { id: p.identity, label: "User-" + p.identity.slice(-4) }];
-            });
-            tracksToQueue.push({ type: "screen", identity: p.identity, track: pub.track });
-          } else {
-            hasVideo = !pub.isMuted;
-            tracksToQueue.push({ type: "camera", identity: p.identity, track: pub.track });
+          if (pub.track && pub.isSubscribed) {
+            if (pub.source === Track.Source.ScreenShare) {
+              setScreenShareTiles((prev) => {
+                if (prev.find((t) => t.id === p.identity)) return prev;
+                return [...prev, { id: p.identity, label: "User-" + p.identity.slice(-4) }];
+              });
+              attachScreenTrack(p.identity, pub.track);
+            } else {
+              pendingTracks.current[p.identity] = pub.track;
+              hasVideo = true;
+            }
           }
         });
-
-        existingUsers.push({ id: p.identity, hasVideo, micOff, videoOff });
+        existingUsers.push({ id: p.identity, hasVideo, micMuted, videoMuted });
       });
-
       if (existingUsers.length > 0) {
         setRemoteUsers(existingUsers);
         setStatusText("Connected");
-      }
-
-      // Defer track attachment until after React renders the tiles.
-      // The callback refs will have populated videoElems.current by then.
-      if (tracksToQueue.length > 0) {
-        setTimeout(() => {
-          tracksToQueue.forEach(({ type, identity, track }) => {
-            if (type === "screen") attachScreenTrack(identity, track);
-            else attachVideoTrack(identity, track);
-          });
-        }, 0);
       }
 
       await room.localParticipant.publishTrack(micStream.getAudioTracks()[0], {
@@ -588,10 +586,6 @@ export default function VoiceRoom() {
   const toggleMute = () => {
     const n = !muted;
     micStreamRef.current?.getAudioTracks().forEach((t) => { t.enabled = !n; });
-    // Also call pub.mute()/unmute() so LiveKit fires TrackMuted/TrackUnmuted on the remote side
-    roomRef.current?.localParticipant.audioTrackPublications.forEach((pub) => {
-      if (pub.source === Track.Source.Microphone) n ? pub.mute() : pub.unmute();
-    });
     setMuted(n);
   };
 
@@ -600,9 +594,7 @@ export default function VoiceRoom() {
     if (!room || room.state !== "connected") return;
     if (!videoOff) {
       videoStreamRef.current?.getVideoTracks().forEach((t) => { t.enabled = false; });
-      room.localParticipant.videoTrackPublications.forEach((pub) => {
-        if (pub.source === Track.Source.Camera) pub.mute();
-      });
+      room.localParticipant.videoTrackPublications.forEach((pub) => pub.mute());
       setVideoOff(true);
     } else {
       if (!videoStreamRef.current) {
@@ -617,9 +609,7 @@ export default function VoiceRoom() {
         }
       } else {
         videoStreamRef.current.getVideoTracks().forEach((t) => { t.enabled = true; });
-        room.localParticipant.videoTrackPublications.forEach((pub) => {
-          if (pub.source === Track.Source.Camera) pub.unmute();
-        });
+        room.localParticipant.videoTrackPublications.forEach((pub) => pub.unmute());
       }
       setVideoOff(false);
     }
@@ -659,23 +649,22 @@ export default function VoiceRoom() {
     };
   }, []);
 
-  // remoteUsers shape: { id, hasVideo, micOff, videoOff }
   const allTiles = [
     {
-      id: MY_IDENTITY, label: "User-" + SHORT_ID, isSelf: true,
-      micOff: muted, videoOff,
+      id: MY_IDENTITY, label: "User-" + SHORT_ID, isSelf: true, micOff: muted, videoOff,
       isSpeaking: speakingIds.has(MY_IDENTITY), isScreenShare: false,
     },
     ...remoteUsers.map((u) => ({
       id: u.id, label: "User-" + u.id.slice(-4), isSelf: false,
-      micOff: u.micOff ?? false,
-      videoOff: u.videoOff || !u.hasVideo,
+      // FIX 1: Use synced micMuted/videoMuted from TrackMuted events
+      micOff: u.micMuted ?? false,
+      videoOff: u.videoMuted || !u.hasVideo,
       isSpeaking: speakingIds.has(u.id),
       isScreenShare: false,
     })),
+    // FIX 3: Screen share tiles
     ...screenShareTiles.map((t) => ({
-      id: t.id, label: t.label, isSelf: false,
-      micOff: false, videoOff: false,
+      id: t.id, label: t.label, isSelf: false, micOff: false, videoOff: false,
       isSpeaking: false, isScreenShare: true,
     })),
   ];
@@ -691,6 +680,7 @@ export default function VoiceRoom() {
     }}>
       <div ref={audioContainerRef} style={{ display: "none" }} />
 
+      {/* ══ TOP BAR ══ */}
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
         padding: "10px 20px", flexShrink: 0,
@@ -727,6 +717,7 @@ export default function VoiceRoom() {
         </div>
       </div>
 
+      {/* ══ BODY ══ */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           {!started ? (
@@ -786,6 +777,7 @@ export default function VoiceRoom() {
           )}
         </div>
 
+        {/* ── TRANSCRIPT PANEL ── */}
         {started && showTranscript && (
           <div style={{ width: 320, flexShrink: 0, background: surface, borderLeft: `1px solid ${border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: `1px solid ${border}`, flexShrink: 0 }}>
@@ -815,6 +807,7 @@ export default function VoiceRoom() {
           </div>
         )}
 
+        {/* ── PARTICIPANTS PANEL ── */}
         {started && showParticipants && (
           <div style={{ width: 260, flexShrink: 0, background: surface, borderLeft: `1px solid ${border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: `1px solid ${border}`, flexShrink: 0 }}>
@@ -837,6 +830,7 @@ export default function VoiceRoom() {
                       background: `linear-gradient(135deg,${g1},${g2})`,
                       display: "flex", alignItems: "center", justifyContent: "center",
                       fontSize: 12, fontWeight: 700, color: "#fff",
+                      // FIX 2: speaking ring in participants list
                       outline: isTalking ? "2px solid #22c55e" : "none",
                       outlineOffset: 2,
                     }}>{initials(tile.id)}</div>
