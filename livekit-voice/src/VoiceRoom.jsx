@@ -337,18 +337,15 @@ export default function VoiceRoom() {
     const ws = new WebSocket(WS_SERVER);
     deepgramWsRef.current = ws;
     ws.onopen = () => {
-      const ac = new AudioContext({ sampleRate: 48000 });
+      const ac = new AudioContext();
       const src = ac.createMediaStreamSource(stream);
-      const proc = ac.createScriptProcessor(2048, 1, 1);
+      const proc = ac.createScriptProcessor(4096, 1, 1);
       src.connect(proc); proc.connect(ac.destination);
       proc.onaudioprocess = (e) => {
         const inp = e.inputBuffer.getChannelData(0);
         // const ds = downsampleBuffer(inp, ac.sampleRate, 16000);
-        const pcm = new Int16Array(inp.length);
-
-for (let i = 0; i < inp.length; i++) {
-  pcm[i] = Math.max(-1, Math.min(1, inp[i])) * 0x7fff;
-}
+        const pcm = new Int16Array(ds.length);
+        for (let i = 0; i < ds.length; i++) pcm[i] = Math.max(-1, Math.min(1, ds[i])) * 0x7fff;
         if (ws.readyState === WebSocket.OPEN) ws.send(pcm.buffer);
       };
     };
