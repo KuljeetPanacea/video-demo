@@ -19,7 +19,6 @@ const AVATAR_GRADIENTS = [
 const avatarGrad = (id) => AVATAR_GRADIENTS[id.charCodeAt(id.length - 1) % AVATAR_GRADIENTS.length];
 const initials = (id) => id.slice(-4).toUpperCase().slice(0, 2);
 
-// ─── Call timer ───
 function useCallTimer(running) {
   const [secs, setSecs] = useState(0);
   useEffect(() => {
@@ -35,16 +34,11 @@ function useCallTimer(running) {
 }
 
 // ─── Participant tile ───
-// FIX: accepts onMount callback so parent can attach pending tracks once <video> is in the DOM
-function ParticipantTile({ id, label, isSelf, micOff, videoOff, videoRef, dark, onMount }) {
+// Uses a "callback ref" (videoRefCallback) for remote participants.
+// React calls this function with the DOM element the INSTANT it mounts — zero race condition.
+function ParticipantTile({ id, label, isSelf, micOff, videoOff, dark, videoRefCallback, localVideoRef }) {
   const [g1, g2] = avatarGrad(id);
-
-  useEffect(() => {
-    if (!isSelf && videoRef?.current) {
-      onMount?.(videoRef.current);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const refProp = isSelf ? localVideoRef : videoRefCallback;
 
   return (
     <div style={{
@@ -55,39 +49,32 @@ function ParticipantTile({ id, label, isSelf, micOff, videoOff, videoRef, dark, 
       flexDirection: "column", gap: 12,
       aspectRatio: "16/9", minWidth: 0, flex: "1 1 260px", maxWidth: 460,
     }}>
-      {/* VIDEO ELEMENT — always rendered, hidden when no video */}
       <video
-        ref={videoRef}
+        ref={refProp}
         autoPlay
         playsInline
         muted={isSelf}
         style={{
-          position: "absolute", inset: 0,
-          width: "100%", height: "100%",
-          objectFit: "cover",
-          display: videoOff ? "none" : "block",
+          position: "absolute", inset: 0, width: "100%", height: "100%",
+          objectFit: "cover", display: videoOff ? "none" : "block",
           transform: isSelf ? "scaleX(-1)" : "none",
         }}
       />
 
-      {/* AVATAR FALLBACK */}
       {videoOff && (
         <div style={{
           width: 68, height: 68, borderRadius: "50%",
           background: `linear-gradient(135deg,${g1},${g2})`,
           display: "flex", alignItems: "center", justifyContent: "center",
           fontSize: 24, fontWeight: 700, color: "#fff",
-          boxShadow: "0 4px 18px rgba(0,0,0,0.28)",
-          position: "relative", zIndex: 1,
+          boxShadow: "0 4px 18px rgba(0,0,0,0.28)", position: "relative", zIndex: 1,
         }}>{initials(id)}</div>
       )}
 
-      {/* NAME BAR */}
       <div style={{
         position: "absolute", bottom: 0, left: 0, right: 0,
         background: dark ? "rgba(12,12,14,0.72)" : "rgba(255,255,255,0.80)",
-        backdropFilter: "blur(8px)",
-        display: "flex", alignItems: "center", gap: 6,
+        backdropFilter: "blur(8px)", display: "flex", alignItems: "center", gap: 6,
         padding: "7px 12px", zIndex: 2,
       }}>
         <span style={{
@@ -100,17 +87,14 @@ function ParticipantTile({ id, label, isSelf, micOff, videoOff, videoRef, dark, 
         <div style={{
           width: 22, height: 22, borderRadius: "50%",
           background: micOff ? "#dc2626" : "#16a34a",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          flexShrink: 0,
+          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
         }}>
           {micOff ? <MicOff size={11} color="#fff" /> : <Mic size={11} color="#fff" />}
         </div>
         {videoOff && (
           <div style={{
-            width: 22, height: 22, borderRadius: "50%",
-            background: "#6b7280",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            flexShrink: 0,
+            width: 22, height: 22, borderRadius: "50%", background: "#6b7280",
+            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
           }}>
             <VideoOff size={11} color="#fff" />
           </div>
@@ -120,7 +104,6 @@ function ParticipantTile({ id, label, isSelf, micOff, videoOff, videoRef, dark, 
   );
 }
 
-// ─── Control button ───
 function CtrlBtn({ icon, label, onClick, danger, active, dark, small }) {
   const [hover, setHover] = useState(false);
   const bg = danger
@@ -131,60 +114,31 @@ function CtrlBtn({ icon, label, onClick, danger, active, dark, small }) {
         ? (hover ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.08)")
         : (hover ? "rgba(0,0,0,0.12)" : "rgba(0,0,0,0.06)");
   return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        display: "flex", flexDirection: "column", alignItems: "center", gap: 5,
-        background: "none", border: "none", cursor: "pointer", padding: 0,
-      }}
-    >
+    <button onClick={onClick} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+      style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
       <div style={{
-        width: small ? 40 : 48, height: small ? 40 : 48, borderRadius: "50%",
-        background: bg,
+        width: small ? 40 : 48, height: small ? 40 : 48, borderRadius: "50%", background: bg,
         display: "flex", alignItems: "center", justifyContent: "center",
-        transition: "background .15s, transform .1s",
-        transform: hover ? "scale(1.07)" : "scale(1)",
+        transition: "background .15s, transform .1s", transform: hover ? "scale(1.07)" : "scale(1)",
       }}>{icon}</div>
-      {label && (
-        <span style={{ fontSize: 10, fontWeight: 500, whiteSpace: "nowrap", color: dark ? "#9ca3af" : "#6b7280" }}>
-          {label}
-        </span>
-      )}
+      {label && <span style={{ fontSize: 10, fontWeight: 500, whiteSpace: "nowrap", color: dark ? "#9ca3af" : "#6b7280" }}>{label}</span>}
     </button>
   );
 }
 
-// ─── Transcript line ───
 function TLine({ line, dark }) {
   const isYou = line.speaker === "You", isSys = line.speaker === "System";
-  const tagBg = isYou
-    ? (dark ? "rgba(37,99,235,0.28)" : "#dbeafe")
-    : isSys
-      ? (dark ? "rgba(34,197,94,0.18)" : "#dcfce7")
-      : (dark ? "rgba(249,115,22,0.2)" : "#ffedd5");
-  const tagColor = isYou
-    ? (dark ? "#93c5fd" : "#1d4ed8")
-    : isSys
-      ? (dark ? "#86efac" : "#15803d")
-      : (dark ? "#fdba74" : "#c2410c");
+  const tagBg = isYou ? (dark ? "rgba(37,99,235,0.28)" : "#dbeafe") : isSys ? (dark ? "rgba(34,197,94,0.18)" : "#dcfce7") : (dark ? "rgba(249,115,22,0.2)" : "#ffedd5");
+  const tagColor = isYou ? (dark ? "#93c5fd" : "#1d4ed8") : isSys ? (dark ? "#86efac" : "#15803d") : (dark ? "#fdba74" : "#c2410c");
   return (
-    <div style={{
-      display: "flex", gap: 8, alignItems: "flex-start", padding: "6px 0",
-      borderBottom: dark ? "1px solid rgba(255,255,255,0.05)" : "1px solid rgba(0,0,0,0.05)",
-    }}>
-      <span style={{
-        fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
-        flexShrink: 0, background: tagBg, color: tagColor, marginTop: 1,
-      }}>{line.speaker}</span>
+    <div style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "6px 0", borderBottom: dark ? "1px solid rgba(255,255,255,0.05)" : "1px solid rgba(0,0,0,0.05)" }}>
+      <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, flexShrink: 0, background: tagBg, color: tagColor, marginTop: 1 }}>{line.speaker}</span>
       <span style={{ fontSize: 12, color: dark ? "#d1d5db" : "#374151", flex: 1, lineHeight: 1.5 }}>{line.text}</span>
       <span style={{ fontSize: 10, color: dark ? "#4b5563" : "#9ca3af", whiteSpace: "nowrap", marginTop: 2 }}>{line.time}</span>
     </div>
   );
 }
 
-// ════════════════════════════════════════════
 export default function VoiceRoom() {
   const roomRef = useRef(null);
   const audioContainerRef = useRef(null);
@@ -197,10 +151,12 @@ export default function VoiceRoom() {
   const localVideoRef = useRef(null);
   const screenStreamRef = useRef(null);
 
-  // FIX: videoRefs holds { current: HTMLVideoElement | null } per participant identity
-  const videoRefs = useRef({});
-  // FIX: pendingTracks holds a LiveKit track for participants whose tile hasn't mounted yet
+  // videoElems: identity → actual HTMLVideoElement (written by callback ref on DOM mount)
+  // pendingTracks: identity → LiveKit track (written if track arrives before DOM mount)
+  // callbackRefCache: identity → stable callback ref function (so it doesn't change on re-render)
+  const videoElems = useRef({});
   const pendingTracks = useRef({});
+  const callbackRefCache = useRef({});
 
   const [isSharing, setIsSharing] = useState(false);
   const [dark, setDark] = useState(true);
@@ -221,7 +177,6 @@ export default function VoiceRoom() {
   const textPrimary = dark ? "#f9fafb" : "#111827";
   const textMuted = dark ? "#6b7280" : "#9ca3af";
 
-  // ── Helpers ──
   const addLine = useCallback((speaker, msg) => {
     const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const line = { speaker, text: msg, time };
@@ -230,12 +185,36 @@ export default function VoiceRoom() {
     setTimeout(() => transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
   }, []);
 
-  // FIX: always returns a stable ref object for a given identity
-  const getVideoRef = useCallback((identity) => {
-    if (!videoRefs.current[identity]) {
-      videoRefs.current[identity] = { current: null };
+  // Returns a stable callback ref for a given identity.
+  // React calls this with the DOM element the moment <video> mounts or unmounts.
+  const getCallbackRef = useCallback((identity) => {
+    if (!callbackRefCache.current[identity]) {
+      callbackRefCache.current[identity] = (el) => {
+        if (!el) {
+          // <video> unmounted
+          delete videoElems.current[identity];
+          return;
+        }
+        // <video> just mounted — store it
+        videoElems.current[identity] = el;
+        // If a track was waiting for this element, attach it now
+        if (pendingTracks.current[identity]) {
+          pendingTracks.current[identity].attach(el);
+          delete pendingTracks.current[identity];
+        }
+      };
     }
-    return videoRefs.current[identity];
+    return callbackRefCache.current[identity];
+  }, []);
+
+  // Attach a video track — handles both "el already in DOM" and "not yet mounted"
+  const attachVideoTrack = useCallback((identity, track) => {
+    const el = videoElems.current[identity];
+    if (el) {
+      track.attach(el);
+    } else {
+      pendingTracks.current[identity] = track;
+    }
   }, []);
 
   // ── Media helpers ──
@@ -264,17 +243,10 @@ export default function VoiceRoom() {
         const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
         screenStreamRef.current = stream;
         const videoTrack = stream.getVideoTracks()[0];
-        await roomRef.current.localParticipant.publishTrack(videoTrack, {
-          name: "screen", source: Track.Source.ScreenShare,
-        });
-        videoTrack.onended = () => {
-          stopScreenShare();
-          setIsSharing(false);
-        };
+        await roomRef.current.localParticipant.publishTrack(videoTrack, { name: "screen", source: Track.Source.ScreenShare });
+        videoTrack.onended = () => { stopScreenShare(); setIsSharing(false); };
         setIsSharing(true);
-      } catch (err) {
-        console.error("Screen share error:", err);
-      }
+      } catch (err) { console.error("Screen share error:", err); }
     } else {
       stopScreenShare();
       setIsSharing(false);
@@ -294,13 +266,11 @@ export default function VoiceRoom() {
   // ── Transcription ──
   function downsampleBuffer(buf, sr, out) {
     if (out === sr) return buf;
-    const ratio = sr / out;
-    const len = Math.round(buf.length / ratio);
+    const ratio = sr / out, len = Math.round(buf.length / ratio);
     const res = new Float32Array(len);
     let ro = 0, rb = 0;
     while (ro < res.length) {
-      const next = Math.round((ro + 1) * ratio);
-      let acc = 0, cnt = 0;
+      const next = Math.round((ro + 1) * ratio); let acc = 0, cnt = 0;
       for (let i = rb; i < next && i < buf.length; i++) { acc += buf[i]; cnt++; }
       res[ro] = acc / cnt; ro++; rb = next;
     }
@@ -308,21 +278,15 @@ export default function VoiceRoom() {
   }
 
   const startTranscription = useCallback((room, stream) => {
-    if (
-      deepgramWsRef.current &&
-      (deepgramWsRef.current.readyState === WebSocket.OPEN ||
-        deepgramWsRef.current.readyState === WebSocket.CONNECTING)
-    ) return;
-
+    if (deepgramWsRef.current &&
+      (deepgramWsRef.current.readyState === WebSocket.OPEN || deepgramWsRef.current.readyState === WebSocket.CONNECTING)) return;
     const ws = new WebSocket(WS_SERVER);
     deepgramWsRef.current = ws;
-
     ws.onopen = () => {
       const ac = new AudioContext();
       const src = ac.createMediaStreamSource(stream);
       const proc = ac.createScriptProcessor(4096, 1, 1);
-      src.connect(proc);
-      proc.connect(ac.destination);
+      src.connect(proc); proc.connect(ac.destination);
       proc.onaudioprocess = (e) => {
         const inp = e.inputBuffer.getChannelData(0);
         const ds = downsampleBuffer(inp, ac.sampleRate, 16000);
@@ -331,7 +295,6 @@ export default function VoiceRoom() {
         if (ws.readyState === WebSocket.OPEN) ws.send(pcm.buffer);
       };
     };
-
     ws.onmessage = async (ev) => {
       try {
         const msg = JSON.parse(ev.data);
@@ -344,12 +307,10 @@ export default function VoiceRoom() {
         }
       } catch (e) { console.error("Transcription message error:", e); }
     };
-
     ws.onerror = () => addLine("System", "Transcription error");
     ws.onclose = (e) => {
-      if (roomRef.current?.state === "connected" && e.code !== 1000) {
+      if (roomRef.current?.state === "connected" && e.code !== 1000)
         setTimeout(() => startTranscriptionRef.current?.(room, stream), 2000);
-      }
     };
   }, [addLine]);
 
@@ -365,37 +326,24 @@ export default function VoiceRoom() {
         getCameraStream().catch(() => null),
       ]);
 
-      // Show local video immediately
       if (camStream && localVideoRef.current) {
         localVideoRef.current.srcObject = camStream;
       }
 
       const res = await fetch(`${SERVER}/getToken`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          room_name: "room-123",
-          participant_identity: MY_IDENTITY,
-          participant_name: "User " + SHORT_ID,
-        }),
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ room_name: "room-123", participant_identity: MY_IDENTITY, participant_name: "User " + SHORT_ID }),
       });
-      if (!res.ok) {
-        const err = await res.json();
-        setStatusText("Error: " + err.error);
-        setStarted(false);
-        return;
-      }
+      if (!res.ok) { const err = await res.json(); setStatusText("Error: " + err.error); setStarted(false); return; }
       const data = await res.json();
 
       const room = new Room({
         audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         videoCaptureDefaults: { resolution: { width: 1280, height: 720 } },
-        adaptiveStream: true,
-        dynacast: true,
+        adaptiveStream: true, dynacast: true,
       });
       roomRef.current = room;
 
-      // ── Data relay (transcript) ──
       room.on(RoomEvent.DataReceived, (payload, participant) => {
         if (!participant || participant.identity === MY_IDENTITY) return;
         try {
@@ -404,7 +352,7 @@ export default function VoiceRoom() {
         } catch (e) { console.error("Data message error:", e); }
       });
 
-      // ── FIX: single, correct TrackSubscribed handler ──
+      // ── TrackSubscribed ──
       room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
         if (track.kind === Track.Kind.Audio) {
           const old = audioContainerRef.current?.querySelector(`[data-id="${participant.identity}"]`);
@@ -413,32 +361,23 @@ export default function VoiceRoom() {
           el.autoplay = true;
           el.setAttribute("data-id", participant.identity);
           el.setAttribute("playsinline", "true");
-          el.muted = false;
-          el.volume = 1.0;
+          el.muted = false; el.volume = 1.0;
           audioContainerRef.current?.appendChild(el);
           el.play().catch(() => {});
         }
 
         if (track.kind === Track.Kind.Video) {
-          const vRef = getVideoRef(participant.identity);
-
-          if (vRef.current) {
-            // Tile already mounted — attach directly to the real <video> DOM element
-            track.attach(vRef.current);
-          } else {
-            // Tile not mounted yet — store track; tile's onMount will attach it
-            pendingTracks.current[participant.identity] = track;
-          }
-
-          setRemoteUsers((prev) =>
-            prev.map((u) =>
-              u.id === participant.identity ? { ...u, hasVideo: true } : u
-            )
-          );
+          // 1. Make sure the tile exists in React state (this triggers a re-render → <video> mounts)
+          setRemoteUsers((prev) => {
+            const exists = prev.find((u) => u.id === participant.identity);
+            if (!exists) return [...prev, { id: participant.identity, hasVideo: true }];
+            return prev.map((u) => u.id === participant.identity ? { ...u, hasVideo: true } : u);
+          });
+          // 2. Attach — works whether tile is already mounted or not yet
+          attachVideoTrack(participant.identity, track);
         }
       });
 
-      // ── FIX: TrackUnsubscribed cleanup ──
       room.on(RoomEvent.TrackUnsubscribed, (track, pub, participant) => {
         if (track.kind === Track.Kind.Audio) {
           track.detach();
@@ -448,23 +387,16 @@ export default function VoiceRoom() {
         if (track.kind === Track.Kind.Video) {
           track.detach();
           delete pendingTracks.current[participant.identity];
-          const vRef = videoRefs.current[participant.identity];
-          if (vRef?.current) vRef.current.srcObject = null;
+          const el = videoElems.current[participant.identity];
+          if (el) el.srcObject = null;
           setRemoteUsers((prev) =>
-            prev.map((u) =>
-              u.id === participant.identity ? { ...u, hasVideo: false } : u
-            )
+            prev.map((u) => u.id === participant.identity ? { ...u, hasVideo: false } : u)
           );
         }
       });
 
-      // ── FIX: single ParticipantConnected handler (no duplicate after connect) ──
       room.on(RoomEvent.ParticipantConnected, (p) => {
         setStatusText("Connected");
-        // Pre-create the ref slot so TrackSubscribed can find it immediately
-        if (!videoRefs.current[p.identity]) {
-          videoRefs.current[p.identity] = { current: null };
-        }
         setRemoteUsers((prev) => [
           ...prev.filter((u) => u.id !== p.identity),
           { id: p.identity, hasVideo: false },
@@ -474,34 +406,28 @@ export default function VoiceRoom() {
 
       room.on(RoomEvent.ParticipantDisconnected, (p) => {
         setStatusText("Waiting...");
-        delete videoRefs.current[p.identity];
+        delete videoElems.current[p.identity];
         delete pendingTracks.current[p.identity];
+        delete callbackRefCache.current[p.identity];
         setRemoteUsers((prev) => prev.filter((u) => u.id !== p.identity));
         addLine("System", "User-" + p.identity.slice(-4) + " left");
       });
 
-      room.on(RoomEvent.Disconnected, () => {
-        setStatusText("Disconnected");
-        setStarted(false);
-      });
+      room.on(RoomEvent.Disconnected, () => { setStatusText("Disconnected"); setStarted(false); });
 
       await room.connect(data.server_url, data.participant_token);
 
-      // ── FIX: handle participants already in the room when we join ──
+      // ── Participants already in room ──
       const existingUsers = [];
       room.remoteParticipants.forEach((p) => {
-        // Pre-create ref slot
-        if (!videoRefs.current[p.identity]) {
-          videoRefs.current[p.identity] = { current: null };
-        }
-        existingUsers.push({ id: p.identity, hasVideo: false });
-
-        // If they already have a subscribed video track, store it as pending
+        let hasVideo = false;
         p.videoTrackPublications.forEach((pub) => {
           if (pub.track && pub.isSubscribed) {
             pendingTracks.current[p.identity] = pub.track;
+            hasVideo = true;
           }
         });
+        existingUsers.push({ id: p.identity, hasVideo });
       });
       if (existingUsers.length > 0) {
         setRemoteUsers(existingUsers);
@@ -513,7 +439,7 @@ export default function VoiceRoom() {
         name: "microphone", source: Track.Source.Microphone,
       });
 
-      // Publish local video (if camera available)
+      // Publish local video
       if (camStream) {
         await room.localParticipant.publishTrack(camStream.getVideoTracks()[0], {
           name: "camera", source: Track.Source.Camera,
@@ -523,38 +449,28 @@ export default function VoiceRoom() {
       }
 
       startTranscription(room, micStream);
-    } catch (err) {
-      setStatusText("Error: " + err.message);
-      setStarted(false);
-    }
+    } catch (err) { setStatusText("Error: " + err.message); setStarted(false); }
   };
 
-  // ── Toggle mic ──
   const toggleMute = () => {
     const n = !muted;
     micStreamRef.current?.getAudioTracks().forEach((t) => { t.enabled = !n; });
     setMuted(n);
   };
 
-  // ── Toggle camera ──
   const toggleVideo = async () => {
     const room = roomRef.current;
     if (!room || room.state !== "connected") return;
-
     if (!videoOff) {
-      // Turn off
       videoStreamRef.current?.getVideoTracks().forEach((t) => { t.enabled = false; });
       room.localParticipant.videoTrackPublications.forEach((pub) => pub.mute());
       setVideoOff(true);
     } else {
-      // Turn on
       if (!videoStreamRef.current) {
         try {
           const stream = await getCameraStream();
           if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-          await room.localParticipant.publishTrack(stream.getVideoTracks()[0], {
-            name: "camera", source: Track.Source.Camera,
-          });
+          await room.localParticipant.publishTrack(stream.getVideoTracks()[0], { name: "camera", source: Track.Source.Camera });
         } catch (err) {
           console.error("Failed to enable camera:", err);
           alert("Camera access denied or unavailable.");
@@ -568,26 +484,16 @@ export default function VoiceRoom() {
     }
   };
 
-  // ── End call ──
   const endCall = () => {
-    deepgramWsRef.current?.close(1000, "Call ended");
-    deepgramWsRef.current = null;
+    deepgramWsRef.current?.close(1000, "Call ended"); deepgramWsRef.current = null;
     roomRef.current?.disconnect();
-    micStreamRef.current?.getTracks().forEach((t) => t.stop());
-    micStreamRef.current = null;
-    videoStreamRef.current?.getTracks().forEach((t) => t.stop());
-    videoStreamRef.current = null;
+    micStreamRef.current?.getTracks().forEach((t) => t.stop()); micStreamRef.current = null;
+    videoStreamRef.current?.getTracks().forEach((t) => t.stop()); videoStreamRef.current = null;
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
-    videoRefs.current = {};
-    pendingTracks.current = {};
-    setStarted(false);
-    setStatusText("idle");
-    setTranscript([]);
-    transcriptRef.current = [];
-    setRemoteUsers([]);
-    setVideoOff(false);
-    setMuted(false);
-    setIsSharing(false);
+    videoElems.current = {}; pendingTracks.current = {}; callbackRefCache.current = {};
+    setStarted(false); setStatusText("idle");
+    setTranscript([]); transcriptRef.current = [];
+    setRemoteUsers([]); setVideoOff(false); setMuted(false); setIsSharing(false);
   };
 
   const downloadTranscript = () => {
@@ -595,14 +501,10 @@ export default function VoiceRoom() {
     const text = transcript.map((l) => `[${l.time}] ${l.speaker}: ${l.text}`).join("\n");
     const blob = new Blob([text], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `transcript-${Date.now()}.txt`;
-    a.click();
+    const a = document.createElement("a"); a.href = url; a.download = `transcript-${Date.now()}.txt`; a.click();
     URL.revokeObjectURL(url);
   };
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       deepgramWsRef.current?.close();
@@ -612,15 +514,10 @@ export default function VoiceRoom() {
     };
   }, []);
 
-  // ── Build tile list ──
   const allTiles = [
     { id: MY_IDENTITY, label: "User-" + SHORT_ID, isSelf: true, micOff: muted, videoOff },
     ...remoteUsers.map((u) => ({
-      id: u.id,
-      label: "User-" + u.id.slice(-4),
-      isSelf: false,
-      micOff: false,
-      videoOff: !u.hasVideo,
+      id: u.id, label: "User-" + u.id.slice(-4), isSelf: false, micOff: false, videoOff: !u.hasVideo,
     })),
   ];
   const totalParticipants = 1 + remoteUsers.length;
@@ -629,8 +526,7 @@ export default function VoiceRoom() {
 
   return (
     <div style={{
-      width: "100%", height: "100dvh",
-      background: bg, display: "flex", flexDirection: "column",
+      width: "100%", height: "100dvh", background: bg, display: "flex", flexDirection: "column",
       overflow: "hidden", fontFamily: "'Inter','Segoe UI',sans-serif", color: textPrimary,
     }}>
       <div ref={audioContainerRef} style={{ display: "none" }} />
@@ -642,65 +538,30 @@ export default function VoiceRoom() {
         background: surface, borderBottom: `1px solid ${border}`, zIndex: 10,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{
-            width: 38, height: 38, borderRadius: 10,
-            background: "linear-gradient(135deg,#2563eb,#7c3aed)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-          }}>
+          <div style={{ width: 38, height: 38, borderRadius: 10, background: "linear-gradient(135deg,#2563eb,#7c3aed)", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Video size={18} color="#fff" />
           </div>
         </div>
 
         {started && (
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{
-              display: "flex", alignItems: "center", gap: 6,
-              padding: "5px 12px", borderRadius: 20,
-              background: dark ? "rgba(37,99,235,0.15)" : "#dbeafe",
-              border: `1px solid ${dark ? "rgba(37,99,235,0.35)" : "#bfdbfe"}`,
-            }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 12px", borderRadius: 20, background: dark ? "rgba(37,99,235,0.15)" : "#dbeafe", border: `1px solid ${dark ? "rgba(37,99,235,0.35)" : "#bfdbfe"}` }}>
               <Clock size={12} color={dark ? "#60a5fa" : "#2563eb"} />
-              <span style={{ fontSize: 12, fontWeight: 600, color: dark ? "#60a5fa" : "#2563eb", fontVariantNumeric: "tabular-nums" }}>
-                {timer}
-              </span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: dark ? "#60a5fa" : "#2563eb", fontVariantNumeric: "tabular-nums" }}>{timer}</span>
             </div>
-            <div style={{
-              display: "flex", alignItems: "center", gap: 6, padding: "5px 12px", borderRadius: 20,
-              background: connected ? (dark ? "rgba(34,197,94,0.15)" : "#dcfce7") : (dark ? "rgba(245,158,11,0.15)" : "#fef3c7"),
-              border: `1px solid ${connected ? (dark ? "rgba(34,197,94,0.3)" : "#86efac") : (dark ? "rgba(245,158,11,0.3)" : "#fde68a")}`,
-            }}>
-              {connected
-                ? <Wifi size={12} color={dark ? "#4ade80" : "#16a34a"} />
-                : <WifiOff size={12} color={dark ? "#fbbf24" : "#d97706"} />}
-              <span style={{ fontSize: 12, fontWeight: 600, color: connected ? (dark ? "#4ade80" : "#16a34a") : (dark ? "#fbbf24" : "#d97706") }}>
-                {statusText}
-              </span>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 12px", borderRadius: 20, background: connected ? (dark ? "rgba(34,197,94,0.15)" : "#dcfce7") : (dark ? "rgba(245,158,11,0.15)" : "#fef3c7"), border: `1px solid ${connected ? (dark ? "rgba(34,197,94,0.3)" : "#86efac") : (dark ? "rgba(245,158,11,0.3)" : "#fde68a")}` }}>
+              {connected ? <Wifi size={12} color={dark ? "#4ade80" : "#16a34a"} /> : <WifiOff size={12} color={dark ? "#fbbf24" : "#d97706"} />}
+              <span style={{ fontSize: 12, fontWeight: 600, color: connected ? (dark ? "#4ade80" : "#16a34a") : (dark ? "#fbbf24" : "#d97706") }}>{statusText}</span>
             </div>
           </div>
         )}
 
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <button
-            onClick={() => setDark((d) => !d)}
-            style={{
-              width: 36, height: 36, borderRadius: 8, border: `1px solid ${border}`,
-              background: surface2, cursor: "pointer",
-              display: "flex", alignItems: "center", justifyContent: "center",
-            }}
-          >
+          <button onClick={() => setDark((d) => !d)} style={{ width: 36, height: 36, borderRadius: 8, border: `1px solid ${border}`, background: surface2, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
             {dark ? <Sun size={16} color={textMuted} /> : <Moon size={16} color={textMuted} />}
           </button>
           {started && (
-            <button
-              onClick={downloadTranscript}
-              disabled={!transcript.length}
-              style={{
-                width: 36, height: 36, borderRadius: 8, border: `1px solid ${border}`,
-                background: surface2, cursor: transcript.length ? "pointer" : "not-allowed",
-                opacity: transcript.length ? 1 : 0.4,
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}
-            >
+            <button onClick={downloadTranscript} disabled={!transcript.length} style={{ width: 36, height: 36, borderRadius: 8, border: `1px solid ${border}`, background: surface2, cursor: transcript.length ? "pointer" : "not-allowed", opacity: transcript.length ? 1 : 0.4, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <Download size={16} color={textMuted} />
             </button>
           )}
@@ -709,20 +570,10 @@ export default function VoiceRoom() {
 
       {/* ══ BODY ══ */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-
-        {/* ── STAGE ── */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           {!started ? (
-            <div style={{
-              flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
-              flexDirection: "column", gap: 30, padding: 40,
-            }}>
-              <div style={{
-                width: 96, height: 96, borderRadius: 26,
-                background: "linear-gradient(135deg,#2563eb,#7c3aed)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                boxShadow: "0 16px 48px rgba(37,99,235,0.38)",
-              }}>
+            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 30, padding: 40 }}>
+              <div style={{ width: 96, height: 96, borderRadius: 26, background: "linear-gradient(135deg,#2563eb,#7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 16px 48px rgba(37,99,235,0.38)" }}>
                 <Video size={44} color="#fff" />
               </div>
               <div style={{ textAlign: "center" }}>
@@ -732,97 +583,40 @@ export default function VoiceRoom() {
                   <span style={{ fontFamily: "monospace", color: dark ? "#60a5fa" : "#2563eb" }}>{MY_IDENTITY}</span>
                 </div>
               </div>
-              <button
-                onClick={startCall}
-                style={{
-                  padding: "16px 64px", borderRadius: 14, border: "none", cursor: "pointer",
-                  background: "linear-gradient(135deg,#2563eb,#1d4ed8)", color: "#fff",
-                  fontSize: 16, fontWeight: 700, letterSpacing: "-0.3px",
-                  boxShadow: "0 6px 24px rgba(37,99,235,0.42)",
-                }}
-              >
+              <button onClick={startCall} style={{ padding: "16px 64px", borderRadius: 14, border: "none", cursor: "pointer", background: "linear-gradient(135deg,#2563eb,#1d4ed8)", color: "#fff", fontSize: 16, fontWeight: 700, letterSpacing: "-0.3px", boxShadow: "0 6px 24px rgba(37,99,235,0.42)" }}>
                 Join Meeting
               </button>
             </div>
           ) : (
-            <div style={{
-              flex: 1, display: "flex", flexWrap: "wrap",
-              gap: 12, padding: 16,
-              alignContent: "flex-start", overflow: "auto",
-            }}>
+            <div style={{ flex: 1, display: "flex", flexWrap: "wrap", gap: 12, padding: 16, alignContent: "flex-start", overflow: "auto" }}>
               {allTiles.map((tile) => (
                 <ParticipantTile
                   key={tile.id}
                   {...tile}
                   dark={dark}
-                  videoRef={tile.isSelf ? localVideoRef : getVideoRef(tile.id)}
-                  onMount={tile.isSelf ? undefined : (el) => {
-                    // FIX: el is the real <video> DOM node — attach any pending track now
-                    if (el && pendingTracks.current[tile.id]) {
-                      pendingTracks.current[tile.id].attach(el);
-                      delete pendingTracks.current[tile.id];
-                    }
-                  }}
+                  localVideoRef={tile.isSelf ? localVideoRef : undefined}
+                  videoRefCallback={tile.isSelf ? undefined : getCallbackRef(tile.id)}
                 />
               ))}
             </div>
           )}
 
-          {/* ── CONTROL BAR ── */}
           {started && (
-            <div style={{
-              flexShrink: 0, background: surface,
-              borderTop: `1px solid ${border}`,
-              padding: "12px 28px",
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-            }}>
+            <div style={{ flexShrink: 0, background: surface, borderTop: `1px solid ${border}`, padding: "12px 28px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 100 }}>
                 <Users size={14} color={textMuted} />
-                <span style={{ fontSize: 12, color: textMuted, fontWeight: 500 }}>
-                  {totalParticipants} participant{totalParticipants !== 1 ? "s" : ""}
-                </span>
+                <span style={{ fontSize: 12, color: textMuted, fontWeight: 500 }}>{totalParticipants} participant{totalParticipants !== 1 ? "s" : ""}</span>
               </div>
-
               <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                <CtrlBtn
-                  icon={muted ? <MicOff size={20} color="#fff" /> : <Mic size={20} color={iconColor(false)} />}
-                  label={muted ? "Unmute" : "Mute"}
-                  onClick={toggleMute} dark={dark} active={muted} danger={muted}
-                />
-                <CtrlBtn
-                  icon={videoOff ? <VideoOff size={20} color="#fff" /> : <Video size={20} color={iconColor(false)} />}
-                  label={videoOff ? "Start Video" : "Stop Video"}
-                  onClick={toggleVideo} dark={dark} active={videoOff} danger={videoOff}
-                />
-                <CtrlBtn
-                  icon={<PhoneOff size={22} color="#fff" />}
-                  label="End" onClick={endCall} danger dark={dark}
-                />
-                <CtrlBtn
-                  icon={<ScreenShare size={20} color={isSharing ? "#fff" : iconColor(false)} />}
-                  label={isSharing ? "Stop Share" : "Share"}
-                  onClick={toggleScreenShare}
-                  dark={dark} active={isSharing} danger={isSharing}
-                />
-                <CtrlBtn
-                  icon={<MoreHorizontal size={20} color={iconColor(false)} />}
-                  label="More" dark={dark}
-                />
+                <CtrlBtn icon={muted ? <MicOff size={20} color="#fff" /> : <Mic size={20} color={iconColor(false)} />} label={muted ? "Unmute" : "Mute"} onClick={toggleMute} dark={dark} active={muted} danger={muted} />
+                <CtrlBtn icon={videoOff ? <VideoOff size={20} color="#fff" /> : <Video size={20} color={iconColor(false)} />} label={videoOff ? "Start Video" : "Stop Video"} onClick={toggleVideo} dark={dark} active={videoOff} danger={videoOff} />
+                <CtrlBtn icon={<PhoneOff size={22} color="#fff" />} label="End" onClick={endCall} danger dark={dark} />
+                <CtrlBtn icon={<ScreenShare size={20} color={isSharing ? "#fff" : iconColor(false)} />} label={isSharing ? "Stop Share" : "Share"} onClick={toggleScreenShare} dark={dark} active={isSharing} danger={isSharing} />
+                <CtrlBtn icon={<MoreHorizontal size={20} color={iconColor(false)} />} label="More" dark={dark} />
               </div>
-
               <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 100, justifyContent: "flex-end" }}>
-                <CtrlBtn
-                  icon={<MessageSquare size={17} color={iconColor(showTranscript)} />}
-                  label="Chat"
-                  onClick={() => setShowTranscript((t) => !t)}
-                  active={showTranscript} dark={dark} small
-                />
-                <CtrlBtn
-                  icon={<Users size={17} color={iconColor(showParticipants)} />}
-                  label="People"
-                  onClick={() => setShowParticipants((p) => !p)}
-                  active={showParticipants} dark={dark} small
-                />
+                <CtrlBtn icon={<MessageSquare size={17} color={iconColor(showTranscript)} />} label="Chat" onClick={() => setShowTranscript((t) => !t)} active={showTranscript} dark={dark} small />
+                <CtrlBtn icon={<Users size={17} color={iconColor(showParticipants)} />} label="People" onClick={() => setShowParticipants((p) => !p)} active={showParticipants} dark={dark} small />
               </div>
             </div>
           )}
@@ -830,28 +624,14 @@ export default function VoiceRoom() {
 
         {/* ── TRANSCRIPT PANEL ── */}
         {started && showTranscript && (
-          <div style={{
-            width: 320, flexShrink: 0, background: surface,
-            borderLeft: `1px solid ${border}`,
-            display: "flex", flexDirection: "column", overflow: "hidden",
-          }}>
-            <div style={{
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-              padding: "12px 16px", borderBottom: `1px solid ${border}`, flexShrink: 0,
-            }}>
+          <div style={{ width: 320, flexShrink: 0, background: surface, borderLeft: `1px solid ${border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: `1px solid ${border}`, flexShrink: 0 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <MessageSquare size={14} color={textMuted} />
                 <span style={{ fontSize: 13, fontWeight: 600 }}>Live Transcript</span>
                 <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", animation: "pulse 1.4s infinite" }} />
               </div>
-              <button
-                onClick={() => setShowTranscript(false)}
-                style={{
-                  width: 26, height: 26, borderRadius: 6, border: `1px solid ${border}`,
-                  background: surface2, cursor: "pointer",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                }}
-              >
+              <button onClick={() => setShowTranscript(false)} style={{ width: 26, height: 26, borderRadius: 6, border: `1px solid ${border}`, background: surface2, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <X size={13} color={textMuted} />
               </button>
             </div>
@@ -859,26 +639,13 @@ export default function VoiceRoom() {
               {transcript.length === 0 ? (
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 12 }}>
                   <Mic size={30} color={textMuted} style={{ opacity: 0.3 }} />
-                  <p style={{ fontSize: 12, color: textMuted, textAlign: "center", lineHeight: 1.6, opacity: 0.7 }}>
-                    Transcript appears here as you speak...
-                  </p>
+                  <p style={{ fontSize: 12, color: textMuted, textAlign: "center", lineHeight: 1.6, opacity: 0.7 }}>Transcript appears here as you speak...</p>
                 </div>
-              ) : (
-                transcript.map((line, i) => <TLine key={i} line={line} dark={dark} />)
-              )}
+              ) : transcript.map((line, i) => <TLine key={i} line={line} dark={dark} />)}
               <div ref={transcriptEndRef} />
             </div>
             <div style={{ padding: "10px 16px", borderTop: `1px solid ${border}`, flexShrink: 0 }}>
-              <button
-                onClick={downloadTranscript}
-                disabled={!transcript.length}
-                style={{
-                  width: "100%", padding: "9px 0", borderRadius: 8, border: `1px solid ${border}`,
-                  background: surface2, cursor: transcript.length ? "pointer" : "not-allowed",
-                  opacity: transcript.length ? 1 : 0.4, fontSize: 12, fontWeight: 600, color: textPrimary,
-                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                }}
-              >
+              <button onClick={downloadTranscript} disabled={!transcript.length} style={{ width: "100%", padding: "9px 0", borderRadius: 8, border: `1px solid ${border}`, background: surface2, cursor: transcript.length ? "pointer" : "not-allowed", opacity: transcript.length ? 1 : 0.4, fontSize: 12, fontWeight: 600, color: textPrimary, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
                 <Download size={13} /> Save transcript
               </button>
             </div>
@@ -887,27 +654,13 @@ export default function VoiceRoom() {
 
         {/* ── PARTICIPANTS PANEL ── */}
         {started && showParticipants && (
-          <div style={{
-            width: 260, flexShrink: 0, background: surface,
-            borderLeft: `1px solid ${border}`,
-            display: "flex", flexDirection: "column", overflow: "hidden",
-          }}>
-            <div style={{
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-              padding: "12px 16px", borderBottom: `1px solid ${border}`, flexShrink: 0,
-            }}>
+          <div style={{ width: 260, flexShrink: 0, background: surface, borderLeft: `1px solid ${border}`, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: `1px solid ${border}`, flexShrink: 0 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <Users size={14} color={textMuted} />
                 <span style={{ fontSize: 13, fontWeight: 600 }}>Participants ({totalParticipants})</span>
               </div>
-              <button
-                onClick={() => setShowParticipants(false)}
-                style={{
-                  width: 26, height: 26, borderRadius: 6, border: `1px solid ${border}`,
-                  background: surface2, cursor: "pointer",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                }}
-              >
+              <button onClick={() => setShowParticipants(false)} style={{ width: 26, height: 26, borderRadius: 6, border: `1px solid ${border}`, background: surface2, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <X size={13} color={textMuted} />
               </button>
             </div>
@@ -915,23 +668,11 @@ export default function VoiceRoom() {
               {allTiles.map((tile) => {
                 const [g1, g2] = avatarGrad(tile.id);
                 return (
-                  <div key={tile.id} style={{
-                    display: "flex", alignItems: "center", gap: 10,
-                    padding: "8px 6px", borderBottom: `1px solid ${border}`,
-                  }}>
-                    <div style={{
-                      width: 34, height: 34, borderRadius: "50%", flexShrink: 0,
-                      background: `linear-gradient(135deg,${g1},${g2})`,
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 12, fontWeight: 700, color: "#fff",
-                    }}>{initials(tile.id)}</div>
+                  <div key={tile.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 6px", borderBottom: `1px solid ${border}` }}>
+                    <div style={{ width: 34, height: 34, borderRadius: "50%", flexShrink: 0, background: `linear-gradient(135deg,${g1},${g2})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: "#fff" }}>{initials(tile.id)}</div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {tile.label}{tile.isSelf ? " (You)" : ""}
-                      </div>
-                      <div style={{ fontSize: 11, color: textMuted }}>
-                        {tile.micOff ? "Muted" : "Active"}{tile.videoOff ? " · Cam off" : ""}
-                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tile.label}{tile.isSelf ? " (You)" : ""}</div>
+                      <div style={{ fontSize: 11, color: textMuted }}>{tile.micOff ? "Muted" : "Active"}{tile.videoOff ? " · Cam off" : ""}</div>
                     </div>
                     <div style={{ display: "flex", gap: 4 }}>
                       {tile.micOff ? <MicOff size={13} color="#dc2626" /> : <Mic size={13} color="#22c55e" />}
