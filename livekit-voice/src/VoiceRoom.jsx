@@ -400,7 +400,7 @@ const getVideoRef = (identity) => {
     vRef.current.srcObject = el.srcObject;
   } else {
     // fallback if ref not mounted yet
-    setTimeout(() => {
+    requestAnimationFrame(() => {
       if (vRef.current) {
         vRef.current.srcObject = el.srcObject;
       }
@@ -453,7 +453,28 @@ const getVideoRef = (identity) => {
       room.on(RoomEvent.Disconnected, () => { setStatusText("Disconnected"); setStarted(false); });
 
       await room.connect(data.server_url, data.participant_token);
+      // 👇 ADD THIS BLOCK (VERY IMPORTANT)
+      // ✅ HANDLE ALREADY PUBLISHED TRACKS (FIX)
+room.on(RoomEvent.ParticipantConnected, (participant) => {
+  participant.on("trackSubscribed", (track) => {
+    if (track.kind === Track.Kind.Video) {
+      const vRef = getVideoRef(participant.identity);
+      const el = track.attach();
 
+      requestAnimationFrame(() => {
+        if (vRef.current) {
+          vRef.current.srcObject = el.srcObject;
+        }
+      });
+
+      setRemoteUsers(prev =>
+        prev.map(u =>
+          u.id === participant.identity ? { ...u, hasVideo: true } : u
+        )
+      );
+    }
+  });
+});
       // Publish audio track
       await room.localParticipant.publishTrack(micStream.getAudioTracks()[0], {
         name: "microphone", source: Track.Source.Microphone,
@@ -468,16 +489,11 @@ const getVideoRef = (identity) => {
         setVideoOff(true);
       }
 
-      const rc = room.remoteParticipants.size;
-      if (rc > 0) {
-        setStatusText("Connected");
-        const users = [];
-        room.remoteParticipants.forEach(p => {
-          users.push({ id: p.identity, hasVideo: false });
-        });
-        setRemoteUsers(users);
-      } else { setStatusText("Waiting..."); }
-
+    const users = [];
+room.remoteParticipants.forEach(p => {
+  users.push({ id: p.identity, hasVideo: false });
+});
+setRemoteUsers(users);
       startTranscription(room, micStream);
     } catch (err) { setStatusText("Error: " + err.message); setStarted(false); }
   };
