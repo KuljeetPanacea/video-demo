@@ -8,8 +8,8 @@ import {
 
 const MY_IDENTITY = "user-" + Math.random().toString(36).slice(2, 8);
 const SHORT_ID = MY_IDENTITY.slice(-4);
-const SERVER = "https://3e55-182-77-48-121.ngrok-free.app";
-const WS_SERVER = "https://3e55-182-77-48-121.ngrok-free.app";
+const SERVER = "http://localhost:3001";
+const WS_SERVER = "ws://localhost:3001/ws";
 
 const AVATAR_GRADIENTS = [
   ["#2563eb", "#1d4ed8"], ["#7c3aed", "#6d28d9"],
